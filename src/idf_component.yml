@@ -1,0 +1,3 @@
+# Used by the pioarduino ESP32 platform's component manager.
+dependencies:
+  idf: '>=5.1'
