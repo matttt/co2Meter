@@ -16,6 +16,8 @@ built with:
 - Small lipo battery ~1000mAH, ~20x40mm in the major dimensions
 - some M2 heat set inserts and M2 x 6mm socket head screws
 
+The following is LLM generated, apologies for the verbosity, but there's some useful stuff:
+
 At boot and after each wake, the firmware starts the SCD-40's low-power
 periodic mode, reads one valid sample after about 30 seconds, stops measurement,
 and renders the dashboard. The ESP32 then deep sleeps for one hour and repeats.
