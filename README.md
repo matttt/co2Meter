@@ -1,7 +1,15 @@
 # ESP32-C6 eInk CO2 meter
 
-PlatformIO firmware for these Adafruit products:
+<img width="640" height="480" alt="IMG_9852 Medium" src="https://github.com/user-attachments/assets/da5c4d90-f1dc-470a-9573-3021fa489fe9" />
 
+<img width="640" height="480" alt="IMG_9853 Medium" src="https://github.com/user-attachments/assets/ff23f288-11cf-4015-b082-60439ec02e55" />
+
+
+
+<img width="582" height="585" alt="CleanShot 2026-10-07 at 20 32 52" src="https://github.com/user-attachments/assets/53dd6a5d-81c9-4080-9a10-078a6cacdf22" />
+
+
+built with:
 - [ESP32-C6 Feather, product 5933](https://www.adafruit.com/product/5933)
 - [2.13-inch 250x122 monochrome eInk breakout, product 4197](https://www.adafruit.com/product/4197)
 - [SCD-40 CO2, temperature, and humidity sensor, product 5187](https://www.adafruit.com/product/5187)
