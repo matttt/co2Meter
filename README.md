@@ -14,6 +14,8 @@ built with:
 - [2.13-inch 250x122 monochrome eInk breakout, product 4197](https://www.adafruit.com/product/4197)
 - [SCD-40 CO2, temperature, and humidity sensor, product 5187](https://www.adafruit.com/product/5187)
 
+You'll also need some M2 heat set inserts and M2 x 6mm socket head screws.
+
 At boot and after each wake, the firmware starts the SCD-40's low-power
 periodic mode, reads one valid sample after about 30 seconds, stops measurement,
 and renders the dashboard. The ESP32 then deep sleeps for one hour and repeats.
