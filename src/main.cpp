@@ -36,8 +36,15 @@ constexpr int16_t kLayoutOffsetX = -4;
 constexpr int16_t kSidebarContentOffsetX = 3;
 constexpr bool kUseFahrenheit = true;
 constexpr int16_t kNoError = 0;
+// The onboard MAX17048 shares I2C with the SCD-40. Leave enough charge for a
+// final eInk refresh before the battery or regulator cuts off power.
+constexpr uint8_t kBatteryMonitorAddress = 0x36;
+constexpr float kLowBatteryPercent = 20.0F;
+constexpr float kDepletedBatteryPercent = 5.0F;
+constexpr float kDepletedBatteryVoltage = 3.4F;
 
 static_assert(kSleepIntervalMinutes > 0);
+static_assert(kDepletedBatteryPercent < kLowBatteryPercent);
 
 // This display is marked FPC-7528B. Its SSD1680 framebuffer needs the BN/B74
 // memory offset; using the GDEY0213B74 driver leaves a noisy 8-pixel strip.
@@ -51,11 +58,65 @@ struct AirReading {
   float humidityPercent;
 };
 
+enum class BatteryState { Unknown, Normal, Low, Depleted };
+
+BatteryState batteryState = BatteryState::Unknown;
 bool sensorAvailable = false;
 bool measurementRunning = false;
 bool programmingMode = false;
 uint32_t lastSensorPollMs = 0;
 uint32_t measurementStartedMs = 0;
+
+bool readBatteryRegister(uint8_t address, uint16_t& value) {
+  Wire.beginTransmission(kBatteryMonitorAddress);
+  Wire.write(address);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+  if (Wire.requestFrom(kBatteryMonitorAddress, static_cast<size_t>(2)) != 2) {
+    return false;
+  }
+  value = static_cast<uint16_t>(Wire.read()) << 8;
+  value |= static_cast<uint16_t>(Wire.read());
+  return true;
+}
+
+void updateBatteryStatus(bool logReading = false) {
+  uint16_t version = 0;
+  uint16_t rawVoltage = 0;
+  uint16_t rawPercent = 0;
+  // Read without resetting/quick-starting the gauge on each deep-sleep wake;
+  // its state-of-charge estimate must continue tracking while the ESP32 sleeps.
+  // An absent battery or I2C failure must not be mistaken for an empty battery.
+  if (!readBatteryRegister(0x08, version) ||
+      (version & 0xFFF0) != 0x0010 ||
+      !readBatteryRegister(0x02, rawVoltage) ||
+      !readBatteryRegister(0x04, rawPercent) || rawVoltage == 0 ||
+      rawPercent == 0xFFFF) {
+    if (logReading) {
+      Serial.println("Battery reading unavailable; retaining last known state.");
+    }
+    return;
+  }
+
+  // MAX17048 VCELL is 78.125 uV/LSB; SOC is 1/256 percent/LSB.
+  const float voltage = rawVoltage * 0.000078125F;
+  const float percent = min(rawPercent / 256.0F, 100.0F);
+  if (voltage > 4.5F) {
+    return;
+  }
+  if (percent <= kDepletedBatteryPercent ||
+      voltage <= kDepletedBatteryVoltage) {
+    batteryState = BatteryState::Depleted;
+  } else if (percent <= kLowBatteryPercent) {
+    batteryState = BatteryState::Low;
+  } else {
+    batteryState = BatteryState::Normal;
+  }
+  if (logReading) {
+    Serial.printf("Battery: %.1f%%, %.3f V\n", percent, voltage);
+  }
+}
 
 void printSensorError(const char* operation, int16_t error) {
   char message[64] = {};
@@ -97,6 +158,34 @@ void drawCenteredText(const char* text, int16_t centerX, int16_t baselineY,
   display.setCursor(centerX - static_cast<int16_t>(width) / 2 - x1,
                     baselineY);
   display.print(text);
+}
+
+void drawBatteryIcon(int16_t x, int16_t y, uint8_t scale, bool empty) {
+  display.drawRect(x, y, 20 * scale, 12 * scale, EPD_BLACK);
+  display.drawRect(x + scale, y + scale, 18 * scale, 10 * scale,
+                   EPD_BLACK);
+  display.fillRect(x + 20 * scale, y + 4 * scale, 2 * scale, 4 * scale,
+                   EPD_BLACK);
+  if (!empty) {
+    display.fillRect(x + 3 * scale, y + 3 * scale, 3 * scale, 6 * scale,
+                     EPD_BLACK);
+  }
+}
+
+void drawLowBatteryWarning() {
+  if (batteryState == BatteryState::Low) {
+    drawBatteryIcon(4, 4, 1, false);
+  }
+}
+
+void showDepletedBattery() {
+  display.clearBuffer();
+  display.setTextSize(1);
+  const int16_t centerX = display.width() / 2 + kLayoutOffsetX;
+  drawBatteryIcon(centerX - 33, 18, 3, true);
+  drawCenteredText("LOW BATTERY", centerX, 80, &FreeSansBold9pt7b);
+  drawCenteredText("PLEASE RECHARGE", centerX, 104, nullptr);
+  finishDisplayUpdate();
 }
 
 void drawCo2Value(uint16_t co2Ppm) {
@@ -239,26 +328,38 @@ void drawDashboard(const AirReading& reading) {
   drawMetric(sidebarCenterX, 4, middleY - 1, "TEMP", temperature);
   drawMetric(sidebarCenterX, middleY + 1, display.height() - 5, "HUMIDITY",
              humidity);
+  drawLowBatteryWarning();
 }
 
 void showSensorError() {
+  updateBatteryStatus(true);
+  if (batteryState == BatteryState::Depleted) {
+    showDepletedBattery();
+    return;
+  }
   display.clearBuffer();
+  display.setTextSize(1);
   drawCenteredText("SCD-40", display.width() / 2 + kLayoutOffsetX, 35,
                    &FreeSansBold9pt7b);
   drawCenteredText("SENSOR ERROR", display.width() / 2 + kLayoutOffsetX, 67,
                    &FreeSansBold9pt7b);
   drawCenteredText("CHECK STEMMA QT", display.width() / 2 + kLayoutOffsetX,
                    96, nullptr);
+  drawLowBatteryWarning();
   finishDisplayUpdate();
 }
 
 void showReading(const AirReading& reading) {
+  updateBatteryStatus(true);
+  if (batteryState == BatteryState::Depleted) {
+    showDepletedBattery();
+    return;
+  }
   drawDashboard(reading);
   finishDisplayUpdate();
 }
 
 bool initializeSensor() {
-  Wire.begin();
   scd40.begin(Wire, SCD40_I2C_ADDR_62);
   delay(30);
 
@@ -369,6 +470,7 @@ bool checkProgrammingButton() {
       drawCenteredText("MODE", display.width() / 2, 67,
                        &FreeSansBold9pt7b);
       drawCenteredText("RESET TO RESUME", display.width() / 2, 96, nullptr);
+      drawLowBatteryWarning();
       finishDisplayUpdate();
       Serial.println("Programming mode: deep sleep disabled until reset.");
       return true;
@@ -439,6 +541,13 @@ void setup() {
   if (checkProgrammingButton()) {
     return;
   }
+  Wire.begin();
+  updateBatteryStatus(true);
+  if (batteryState == BatteryState::Depleted) {
+    showDepletedBattery();
+    sleepUntilNextReading();
+    return;
+  }
   sensorAvailable = initializeSensor();
   if (sensorAvailable) {
     sensorAvailable = startMeasurementCycle();
@@ -471,6 +580,13 @@ void loop() {
     return;
   }
   lastSensorPollMs = now;
+
+  updateBatteryStatus();
+  if (batteryState == BatteryState::Depleted) {
+    showDepletedBattery();
+    sleepUntilNextReading();
+    return;
+  }
 
   AirReading reading = {};
   if (!readSensor(reading)) {

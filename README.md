@@ -58,6 +58,27 @@ additional display pins are shared. For individual wires, use:
 The firmware displays temperature in Fahrenheit by default. Set
 `kUseFahrenheit` to `false` in `src/main.cpp` to display Celsius.
 
+## Battery warnings
+
+The Feather's onboard MAX17048 fuel gauge shares I2C with the SCD-40; no extra
+wiring is required. The firmware checks it on each wake, while waiting for a
+sensor sample, and before displaying a reading or sensor error. At **20% or
+less**, a small low-battery icon appears in the top-left corner of the dashboard
+and sensor-error screen.
+
+At **5% or less**, or a cell voltage of **3.4 V or less**, the dashboard is
+replaced by a full-screen empty-battery icon, **LOW BATTERY**, and **PLEASE
+RECHARGE**. The firmware skips sensor measurements and deep sleeps, checking
+again at the next wake so readings resume after recharging. This reserves charge
+for the final refresh: eInk retains the warning after power is lost, but cannot
+draw a new image once power has already cut out, including during sleep.
+
+Tune `kLowBatteryPercent`, `kDepletedBatteryPercent`, and
+`kDepletedBatteryVoltage` in `src/main.cpp` for your battery. Missing batteries
+and failed gauge reads do not count as depletion; the firmware retains the last
+valid state for that wake, or starts without a warning when none is available.
+The gauge is read without resetting its charge estimate on each wake.
+
 ## Deep sleep and interval tuning
 
 Set `kSleepIntervalMinutes` near the top of `src/main.cpp`: `60` for one hour,
@@ -161,4 +182,10 @@ Adafruit references:
   and the screen remains in programming mode. Upload, or RESET to resume.
 - Try a short BOOT press during sleep: it should take a normal reading and sleep.
 - Disconnect the sensor: confirm the error screen and a subsequent sleep/retry.
+- Check with a low battery: confirm the corner icon at 20% or less. At 5% or
+  less or 3.4 V or less, confirm the full-screen warning and sleep without an
+  SCD-40 measurement. Recharge and wake/reset to confirm readings resume. For a
+  quick screen check, temporarily raise the percentage thresholds above the
+  charge reported in the serial log, then restore them before normal use.
+- With only USB power and no battery, confirm the dashboard still renders.
 - Restore the intended interval before the final upload.
